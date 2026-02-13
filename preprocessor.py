@@ -1,25 +1,59 @@
 #! user/bin/env Python3
 
-# check validity of parse structure pipe against provided instructions
-import pandas as pd
+import re
+import csv
 
-# validate pandas is within venv
-print(f"Pandas location: {pd.__file__}")
+INPUT_FILE = 'pools_target_cities_feb26/maricopa_master_residential.txt'
+OUTPUT_FILE = 'pools_target_cities_feb26/verified_pool_list.csv'
 
-# for file work
-import sys
+# Patterns based on your data sample
+garage_pat = re.compile(r'^[GCR]\d-\d+') # Matches G2-380
+patio_pat = re.compile(r'^(CV|UC)-')     # Matches CV-120
 
-# Verification step: Does Pandas see what we see? Does it follow the provided columnar shape?
-test_df = pd.read_csv('pools_target_cities_feb26/maricopa_master_residential.txt', sep='|', header=None, nrows=1, encoding='latin1')
-actual_col_count = test_df.shape[1]
+print("🎯 High-Precision Pool Extraction Starting...")
 
-if actual_col_count != 35:
-    print(f"⚠️ Warning: Detected {actual_col_count} columns, but expected 35.")
+with open(INPUT_FILE, 'r', encoding='latin1') as f_in, \
+     open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as f_out:
+    
+    writer = csv.writer(f_out)
+    writer.writerow(['parcel', 'pool_sqft', 'owner', 'mail_addr', 'city', 'zip'])
 
-# Load just the very first row of the real file
-df_audit = pd.read_csv('pools_target_cities_feb26/maricopa_master_residential.txt', sep='|', header=None, nrows=1, encoding='latin1')
+    pool_count = 0
+    for line in f_in:
+        parts = [p.strip() for p in line.split('|')]
+        if len(parts) < 25: continue
 
-print("--- 🗺️ THE ACTUAL 39-COLUMN MAP ---")
-for i, value in enumerate(df_audit.iloc[0]):
-    print(f"Index {i}: {value}")
+        # FIND THE GARAGE LANDMARK
+        # In your data, Pool SqFt is exactly TWO columns after Garage
+        # Garage (Index 16) -> Patio (Index 17) -> POOL (Index 18)
+        
+        garage_idx = -1
+        for i, part in enumerate(parts):
+            if garage_pat.match(part):
+                garage_idx = i
+                break
+        
+        if garage_idx != -1:
+            try:
+                # Based on your data: 10101028...|G2-400|CV-150|400|...
+                # Pool is garage_idx + 2
+                pool_sqft = float(parts[garage_idx + 2])
+                
+                if pool_sqft > 0:
+                    # Anchor backward from the 'USA' field for stability
+                    # USA is usually index -10 or -11 in your sample
+                    usa_idx = -1
+                    if "USA" in parts:
+                        usa_idx = parts.index("USA")
+                    
+                    owner = parts[usa_idx - 6] if usa_idx != -1 else "Unknown"
+                    addr = parts[usa_idx - 5] if usa_idx != -1 else "Unknown"
+                    city = parts[usa_idx - 2] if usa_idx != -1 else "Unknown"
+                    zip_code = parts[usa_idx - 1] if usa_idx != -1 else "Unknown"
 
+                    writer.writerow([parts[0], pool_sqft, owner, addr, city, zip_code])
+                    pool_count += 1
+            except (ValueError, IndexError):
+                continue
+
+print(f"🏁 DONE! Found {pool_count} verified pools.")
