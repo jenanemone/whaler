@@ -1,59 +1,53 @@
 #! user/bin/env Python3
+#!/usr/bin/env python3
+import pandas as pd
 
-import re
-import csv
+# The 39-column schema confirmed by line counter for pipe counting as legend belies data form
+columns = [
+    "parcel_id", "completion", "class", "stories", "cooling_type",
+    "heating", "bath_fixtures", "ext_walls", "roof_material", "roof_style",
+    "year_built", "sqft_total", "sqft_1", "sqft_2", "sqft_3", "sqft_4",
+    "garage_code", "patio_code", "pool_sqft", "sale_price", "sale_date",
+    "added_sqft", "detach_sqft", "puc", "owner_name", "mail_street", 
+    "mail_unit", "mail_city", "mail_state", "mail_zip", "mail_country",
+    "site_number", "site_dir", "site_name", "site_type", "site_unit1", 
+    "site_unit2", "site_city", "site_zip"
+]
 
-INPUT_FILE = 'pools_target_cities_feb26/maricopa_master_residential.txt'
-OUTPUT_FILE = 'pools_target_cities_feb26/verified_pool_list.csv'
+input_path = "pools_target_cities_feb26/maricopa_master_residential.txt"
+output_path = "pools_target_cities_feb26/normalized_master_residential.csv"
 
-# Patterns based on your data sample
-garage_pat = re.compile(r'^[GCR]\d-\d+') # Matches G2-380
-patio_pat = re.compile(r'^(CV|UC)-')     # Matches CV-120
+print("Loading 1.4M records with Pandas...")
 
-print("🎯 High-Precision Pool Extraction Starting...")
+# Use 'low_memory=False' or 'dtype=str' to prevent DtypeWarnings, quoting=3 so quotes don't trip up Pandas
+df = pd.read_csv(input_path, sep="|", names=columns, header=None, dtype=str, engine="c", quoting=3, encoding="latin1")
 
-with open(INPUT_FILE, 'r', encoding='latin1') as f_in, \
-     open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as f_out:
-    
-    writer = csv.writer(f_out)
-    writer.writerow(['parcel', 'pool_sqft', 'owner', 'mail_addr', 'city', 'zip'])
+print(f"📊 Shape detected: {df.shape}")
 
-    pool_count = 0
-    for line in f_in:
-        parts = [p.strip() for p in line.split('|')]
-        if len(parts) < 25: continue
+# Select the specific columns for the "Square Check"
+normalized = df[[
+    "parcel_id", 
+    "year_built", 
+    "garage_code", 
+    "patio_code", 
+    "pool_sqft", 
+    "sale_price", 
+    "sale_date", 
+    "owner_name", 
+    "mail_street", 
+    "mail_city", 
+    "mail_state", 
+    "mail_zip", 
+    "mail_country",
+    "site_number", 
+    "site_dir", 
+    "site_name", 
+    "site_type", 
+    "site_city", 
+    "site_zip"
+]].copy()
 
-        # FIND THE GARAGE LANDMARK
-        # In your data, Pool SqFt is exactly TWO columns after Garage
-        # Garage (Index 16) -> Patio (Index 17) -> POOL (Index 18)
-        
-        garage_idx = -1
-        for i, part in enumerate(parts):
-            if garage_pat.match(part):
-                garage_idx = i
-                break
-        
-        if garage_idx != -1:
-            try:
-                # Based on your data: 10101028...|G2-400|CV-150|400|...
-                # Pool is garage_idx + 2
-                pool_sqft = float(parts[garage_idx + 2])
-                
-                if pool_sqft > 0:
-                    # Anchor backward from the 'USA' field for stability
-                    # USA is usually index -10 or -11 in your sample
-                    usa_idx = -1
-                    if "USA" in parts:
-                        usa_idx = parts.index("USA")
-                    
-                    owner = parts[usa_idx - 6] if usa_idx != -1 else "Unknown"
-                    addr = parts[usa_idx - 5] if usa_idx != -1 else "Unknown"
-                    city = parts[usa_idx - 2] if usa_idx != -1 else "Unknown"
-                    zip_code = parts[usa_idx - 1] if usa_idx != -1 else "Unknown"
+print("💾 Saving normalized audit file...")
+normalized.to_csv(output_path, index=False)
 
-                    writer.writerow([parts[0], pool_sqft, owner, addr, city, zip_code])
-                    pool_count += 1
-            except (ValueError, IndexError):
-                continue
-
-print(f"🏁 DONE! Found {pool_count} verified pools.")
+print(f"🏁 Done! Review {output_path} to verify alignment.")
